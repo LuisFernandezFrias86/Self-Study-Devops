@@ -1,0 +1,19 @@
+# Variables de tu repositorio de GitHub
+GITHUB_ORG="LuisFernandezFrias"
+GITHUB_REPO="Self-Study-Devops"
+GITHUB_BRANCH="main"
+
+# Crear Federated Credential para GitHub
+az identity federated-credential create \
+  --name "github-terraform-credential" \
+  --identity-name "mi-terraform-lab" \
+  --resource-group "rg-terraform-identity" \
+  --issuer "https://token.actions.githubusercontent.com" \
+  --subject "repo:${GITHUB_ORG}/${GITHUB_REPO}:ref:refs/heads/${GITHUB_BRANCH}" \
+  --audiences "api://AzureADTokenExchange"
+
+# Verificar la credencial
+az identity federated-credential show \
+  --name "github-terraform-credential" \
+  --identity-name "mi-terraform-lab" \
+  --resource-group "rg-terraform-identity"
