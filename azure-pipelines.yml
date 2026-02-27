@@ -1,0 +1,70 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  TF_VAR_location: 'westeurope'
+  TF_VAR_resource_group_name: 'rg-lab'
+  # Variable para backend remoto - OBLIGATORIA
+  ARM_ACCESS_KEY: '' #Introduce el valor obtenido en el Paso 5 (Storage Account Key)
+
+# 📝 Cómo Terraform consume las variables del pipeline:
+# 1. Variables con prefijo TF_VAR_: Terraform las detecta automáticamente
+#    - TF_VAR_location se convierte en var.location en Terraform
+#    - TF_VAR_resource_group_name se convierte en var.resource_group_name
+# 2. Variables ARM_: Detectadas por el provider azurerm para autenticación
+#    - ARM_CLIENT_ID, ARM_TENANT_ID, ARM_SUBSCRIPTION_ID
+#    - ARM_ACCESS_KEY para backend remoto en Azure Storage
+# 3. Autenticación de Azure CLI: El provider azurerm detecta automáticamente
+#    las credenciales cuando usamos AzureCLI@2 con Service Connection
+# 4. Variable subscription_id: Ya está definida en provider.tf,
+#    pero el provider la obtiene automáticamente del Service Connection
+
+steps:
+- task: TerraformInstaller@1
+  inputs:
+    terraformVersion: 'latest'
+  displayName: 'Instalar Terraform'
+
+# Autenticación con Azure usando Managed Identity
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: 'azure-terraform-connection'  # Service Connection con Managed Identity
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      # Con Managed Identity, Azure CLI ya está autenticado automáticamente
+      # Terraform usará la autenticación de Azure CLI por defecto
+      terraform init
+  displayName: 'Inicializar Terraform'
+
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: 'azure-terraform-connection'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      terraform validate
+  displayName: 'Validar sintaxis'
+
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: 'azure-terraform-connection'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      terraform plan -out=tfplan
+  displayName: 'Planificar cambios'
+
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: 'azure-terraform-connection'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      terraform apply -auto-approve tfplan
+  displayName: 'Aplicar cambios'
