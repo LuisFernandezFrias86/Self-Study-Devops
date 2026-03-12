@@ -1,3 +1,29 @@
+variables:
+  # Build configuration
+  buildConfiguration: 'Release'
+  
+  # Azure subscription and resource names
+  # IMPORTANTE: Los siguientes valores son de ejemplo, por favor, reemplalos con los nombres de tus recursos en Azure
+  azureSubscription: 'self-study-devops-connection' # Nombre de la conexión de servicio en Azure DevOps
+  apiAppServiceName: 'todoapp-api' # Nombre del App Service para la API (recurso opcional si tu aplicación tiene backend)
+  webAppServiceName: 'todoapp-app' # Nombre del App Service para la aplicación web
+  
+  # Project paths
+  apiProjectPath: 'TodoLabApp.Api/TodoLabApp.Api.csproj' # Path a usar solo en caso que tu aplicación tenga backend)
+  webProjectPath: 'TodoLabApp.csproj'
+  testsProjectPath: 'TodoLabApp.Tests/TodoLabApp.Tests.csproj'
+  
+  # Runtime versions
+  dotnetVersion8: '8.x'
+  dotnetVersion10: '10.x'
+  
+  # SonarCloud configuration
+  # IMPORTANTE: Crear una Service Connection a SonarCloud en Azure DevOps
+  sonarCloudConnection: 'self-study-devops-sonarqube' # Nombre de la Service Connection
+  sonarCloudOrganization: 'myDevopsOrg' # Tu organization key en SonarCloud
+  sonarCloudProjectKey: 'myDevopsOrg-devsecops-lab1' # Project key en SonarCloud
+  sonarCloudProjectName: 'devsecops-lab1' # Nombre del proyecto
+
 stages:
 - stage: Build
   displayName: 'Build and Test'
@@ -15,6 +41,19 @@ stages:
         packageType: 'sdk'
         version: '$(dotnetVersion8)'
     
+    # 1. Preparar análisis de SonarCloud (ANTES del build)
+    - task: SonarCloudPrepare@2
+      displayName: 'Prepare SonarCloud analysis'
+      inputs:
+        SonarCloud: '$(sonarCloudConnection)'
+        organization: '$(sonarCloudOrganization)'
+        scannerMode: 'dotnet'
+        projectKey: '$(sonarCloudProjectKey)'
+        projectName: '$(sonarCloudProjectName)'
+        extraProperties: |
+          sonar.cs.opencover.reportsPaths=$(Build.SourcesDirectory)/**/coverage.opencover.xml
+          sonar.cs.vstest.reportsPaths=$(Agent.TempDirectory)/**/*.trx
+    
     # Restaurar dependencias
     - task: DotNetCoreCLI@2
       displayName: 'Restore dependencies'
@@ -30,13 +69,24 @@ stages:
         projects: '$(webProjectPath)'
         arguments: '--configuration $(buildConfiguration) --no-restore'
     
-    # Ejecutar tests unitarios
+    # Ejecutar tests unitarios con cobertura
     - task: DotNetCoreCLI@2
       displayName: 'Run unit tests'
       inputs:
         command: 'test'
         projects: '$(testsProjectPath)'
-        arguments: '--configuration $(buildConfiguration) --no-build --collect:"XPlat Code Coverage"'
+        arguments: '--configuration $(buildConfiguration) --no-build --collect:"XPlat Code Coverage" --logger trx'
+        publishTestResults: true
+    
+    # 2. Ejecutar análisis de SonarCloud (DESPUÉS de build y tests)
+    - task: SonarCloudAnalyze@2
+      displayName: 'Run SonarCloud code analysis'
+    
+    # 3. Publicar resultados del Quality Gate
+    - task: SonarCloudPublish@2
+      displayName: 'Publish SonarCloud Quality Gate results'
+      inputs:
+        pollingTimeoutSec: '300'
     
     # Publicar artefactos de la aplicación
     - task: DotNetCoreCLI@2
@@ -54,7 +104,6 @@ stages:
       inputs:
         pathToPublish: '$(Build.ArtifactStagingDirectory)'
         artifactName: 'drop'
-
 - stage: Deploy
   displayName: 'Deploy to Azure'
   dependsOn: Build
